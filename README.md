@@ -33,6 +33,20 @@ App web móvil (PWA) muy liviana — sin servidor, sin librerías, ~30 KB — pa
 Las coordenadas de las oficinas vienen **aproximadas**. El primer día que estés en cada edificio:
 **Ajustes → Oficinas → 📍 Usar mi ubicación**. También puedes cambiar nombres, radio (metros) o agregar más sedes.
 
+## 📱 App Android (recomendada)
+
+La app Android marca la oficina **sola**, aunque esté cerrada: usa las geocercas de Android (las mismas que usa Google Maps), así que no gasta batería extra ni necesita apps adicionales.
+
+1. En el celular abre **https://github.com/mystic23/Asistencia-/releases/latest/download/asistencia.apk** y descarga el archivo.
+2. Ábrelo e instálalo. Android pedirá permitir *instalar apps desconocidas* para Chrome: acéptalo (es tu propia app, no está en Play Store).
+3. Al abrirla, acepta la ubicación y luego elige **“Permitir todo el tiempo”** (sin eso no puede marcar con la app cerrada). Acepta también las notificaciones.
+4. **Ajustes → Oficinas → 📍 Usar mi ubicación** estando en cada edificio (las coordenadas iniciales son aproximadas).
+5. Opcional: conecta tu Gmail (abajo) para guardar el historial en Google Sheets y recibir correos.
+
+Al entrar a la oficina verás la notificación **“🏢 Oficina marcada”**. Cada vez que se cambia el código, GitHub compila una versión nueva del APK (`.github/workflows/android.yml`); se instala encima sin perder los datos.
+
+> Si usas un Xiaomi, Huawei u OPPO: en Ajustes del celular → Batería, pon *Asistencia* en “Sin restricciones” para que Android no la duerma.
+
 ## Conectar con Gmail
 
 Así el historial queda guardado en **tu cuenta de Google** (una hoja de Google Sheets), te llegan correos a tu Gmail y se puede marcar la oficina **sin abrir la app**. Se hace una sola vez (≈5 min, se puede desde el computador):
@@ -53,7 +67,7 @@ Desde ese momento:
 
 > El TOKEN funciona como contraseña: no compartas la URL completa con nadie.
 
-## Marcado automático (sin abrir la app)
+## Marcado automático sin la app Android (iPhone / MacroDroid)
 
 Con la app **abierta**, se marca sola apenas el GPS detecta que estás en la oficina.
 Con la app **cerrada**, ninguna página web puede leer el GPS, así que el celular le avisa directamente a tu script de Google al entrar a la zona de la oficina (requiere el paso anterior):
@@ -77,4 +91,5 @@ Cuando entres al edificio se marcará **oficina** en tu Google Sheets, te llegar
 | `holidays.js` | Festivos de Colombia |
 | `styles.css` | Estilos (modo claro/oscuro) |
 | `sw.js`, `manifest.webmanifest` | Instalable y offline |
+| `android/` | App Android nativa (geocercas + la misma interfaz) |
 | `apps-script/Code.gs` | Script para tu cuenta de Google: historial en Sheets, correos por Gmail y marcado automático |

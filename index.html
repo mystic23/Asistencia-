@@ -31,6 +31,7 @@
         <div class="today-date" id="todayDate"></div>
         <div class="today-status" id="todayStatus">—</div>
         <div class="today-detail" id="todayDetail"></div>
+        <button class="native-hint" id="nativeHint" hidden></button>
         <button class="btn primary" id="btnCheck">📍 Verificar ubicación</button>
         <div class="row">
           <button class="btn" id="btnOffice">🏢 Fui a oficina</button>
@@ -115,7 +116,18 @@
           <button class="btn danger" id="btnDisconnect">Desconectar</button>
         </div>
       </div>
-      <div class="card">
+      <div class="card only-native">
+        <h2>Marcado automático 🤖</h2>
+        <p class="hint sync" id="nativeStatus"></p>
+        <button class="btn primary" id="btnNativePerm" hidden>Activar permisos</button>
+        <p class="hint">La app vigila la entrada a cada oficina de la lista de abajo (radio mínimo 100 m). Si conectaste Gmail, cada marca también se guarda en tu Google Sheets y te llega un correo.</p>
+      </div>
+      <div class="card only-web">
+        <h2>📱 App Android</h2>
+        <p class="hint">Instala la app Android para que se marque sola al llegar a la oficina, sin abrir nada.</p>
+        <a class="btn primary" href="https://github.com/mystic23/Asistencia-/releases/latest/download/asistencia.apk">Descargar APK</a>
+      </div>
+      <div class="card only-web">
         <h2>Marcado automático (sin abrir la app)</h2>
         <p class="hint">Con la app abierta, se marca sola al entrar a la oficina. Para que funcione con la app <b>cerrada</b>, el celular debe avisarle a Google al entrar a la zona de la oficina:</p>
         <p class="hint"><b>Android — MacroDroid (gratis):</b> Agregar macro → Disparador <i>Ubicación → Geocerca → Entrar</i> (marca el edificio en el mapa, radio 150–250 m) → Acción <i>Conectividad → Solicitud HTTP</i> (GET) con el enlace de abajo. Desactiva la optimización de batería para MacroDroid.</p>
@@ -155,7 +167,7 @@
         </div>
         <p class="hint">Sin conectar Google, todo se guarda solo en este celular. Conectado, el historial queda también en tu Google Sheets.</p>
       </div>
-      <div class="card">
+      <div class="card only-web">
         <h2>Abrir y verificar</h2>
         <p class="hint">Este enlace abre la app y verifica el GPS al instante (útil para un acceso directo):<br><code id="autoUrl"></code></p>
       </div>

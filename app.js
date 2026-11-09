@@ -52,6 +52,57 @@
   function save() {
     try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); }
     catch (e) { toast('No se pudo guardar en este dispositivo'); }
+    pushNative();
+  }
+
+  // ---------- App Android (geocercas nativas) ----------
+  const NATIVE = window.AndroidApp || null;
+  let nativeSent = '';
+  // Pasa a Android las oficinas (geocercas) y la conexión con Google cuando cambian.
+  function pushNative() {
+    if (!NATIVE) return;
+    const st = state.settings;
+    const offices = JSON.stringify(st.offices.map(o => ({ name: o.name, lat: o.lat, lng: o.lng, radius: o.radius })));
+    const sig = offices + '|' + st.syncUrl + '|' + st.syncToken;
+    if (sig === nativeSent) return;
+    nativeSent = sig;
+    try { NATIVE.setOffices(offices); NATIVE.setSync(st.syncUrl, st.syncToken); } catch (e) { /* puente no disponible */ }
+  }
+  // Recoge las marcas que hizo Android con la app cerrada.
+  function pullNativeCheckins() {
+    if (!NATIVE) return;
+    let list = [];
+    try { list = JSON.parse(NATIVE.takeCheckins() || '[]'); } catch (e) { return; }
+    list.forEach(c => {
+      const prev = state.records[c.date];
+      if (!prev || prev.type !== 'office') {
+        setRecord(c.date, { type: 'office', source: 'geocerca', place: c.place, time: c.time });
+      }
+    });
+    if (list.length) render();
+  }
+  window.onNativeResume = function () {
+    pullNativeCheckins();
+    renderNative();
+    render();
+    scheduleSync(0);
+  };
+  function renderNative() {
+    document.body.classList.toggle('native', !!NATIVE);
+    const box = document.getElementById('nativeStatus');
+    const btn = document.getElementById('btnNativePerm');
+    const hint = document.getElementById('nativeHint');
+    if (!NATIVE || !box) return;
+    let st = 'ok';
+    try { st = NATIVE.permissionStatus(); } catch (e) { /* */ }
+    const msgs = {
+      ok: '✅ Activo: se marcará oficina sola al entrar al edificio, aunque la app esté cerrada.',
+      need_fine: '⚠️ Falta el permiso de ubicación.',
+      need_background: '⚠️ Para marcar con la app cerrada, la ubicación debe estar en “Permitir todo el tiempo”.'
+    };
+    box.textContent = msgs[st] || st;
+    btn.hidden = st === 'ok';
+    if (hint) { hint.textContent = st === 'ok' ? '' : msgs[st] + ' Toca aquí para activarlo.'; hint.hidden = st === 'ok'; }
   }
 
   // Todo cambio de registros pasa por aquí para sincronizarse con Google.
@@ -233,6 +284,7 @@
       const prev = state.records[k];
       if (!prev || prev.type !== 'office') {
         setRecord(k, { type: 'office', source: 'gps', place: near.office.name, time: new Date().toISOString() });
+        if (NATIVE) try { NATIVE.markedToday(); } catch (e) { /* */ }
         toast('✅ Marcado: oficina (' + near.office.name + ')');
       } else if (!silent) toast('Ya estás marcado en oficina hoy');
       lastCheck = 'En ' + near.office.name + ' · a ' + Math.round(near.dist) + ' m';
@@ -646,6 +698,12 @@
     $('#btnExport').addEventListener('click', () => download('asistencia-respaldo.json', JSON.stringify(state, null, 2), 'application/json'));
     $('#fileImport').addEventListener('change', e => e.target.files[0] && importJson(e.target.files[0]));
     bindSettings();
+    pushNative();
+    pullNativeCheckins();
+    renderNative();
+    const askPerm = () => { try { NATIVE.requestPermissions(); } catch (e) { /* */ } };
+    $('#btnNativePerm').addEventListener('click', askPerm);
+    $('#nativeHint').addEventListener('click', askPerm);
     render();
 
     const forced = new URLSearchParams(location.search).has('checkin');
@@ -657,7 +715,7 @@
     });
     window.addEventListener('online', () => scheduleSync(0));
 
-    if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+    if (!NATIVE && 'serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
   }
 
   let lastAuto = 0;

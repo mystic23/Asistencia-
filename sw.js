@@ -1,5 +1,5 @@
 // Service worker: permite usar la app sin conexión.
-const CACHE = 'asistencia-v2';
+const CACHE = 'asistencia-v3';
 const ASSETS = ['./', 'index.html', 'styles.css', 'app.js', 'holidays.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', e => {

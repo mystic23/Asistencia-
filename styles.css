@@ -149,3 +149,9 @@ code { word-break: break-all; font-size: 12px; background: var(--bg); padding: 2
 .office > code { display: block; margin-bottom: 4px; }
 a { color: var(--primary); }
 input[hidden] { display: none; }
+body.native .only-web, body:not(.native) .only-native { display: none; }
+.native-hint {
+  display: block; width: 100%; margin: 0 0 12px; padding: 10px; border-radius: 10px;
+  border: 1px solid var(--vacation); background: none; color: var(--text); font: inherit; font-size: 13px; cursor: pointer;
+}
+.native-hint[hidden] { display: none; }
