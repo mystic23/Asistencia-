@@ -143,3 +143,9 @@ code { word-break: break-all; font-size: 12px; background: var(--bg); padding: 2
   transition: transform .25s; z-index: 10; text-align: center;
 }
 .toast.show { transform: translate(-50%, 0); }
+.badge { font-size: 14px; vertical-align: middle; }
+.hint.sync { white-space: pre-line; color: var(--text); }
+.office > b { display: block; margin-bottom: 4px; }
+.office > code { display: block; margin-bottom: 4px; }
+a { color: var(--primary); }
+input[hidden] { display: none; }
