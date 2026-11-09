@@ -19,8 +19,13 @@
       autoCheck: true,
       email: '',
       emailCc: '',
+      syncUrl: '',          // URL del Apps Script (Gmail / Google Sheets)
+      syncToken: '',
       offices: DEFAULT_OFFICES
-    }
+    },
+    queue: [],              // cambios pendientes de subir a Google
+    account: '',
+    lastSync: ''
   };
 
   // ---------- Estado ----------
@@ -34,7 +39,10 @@
         const s = JSON.parse(raw);
         return {
           records: s.records || {},
-          settings: Object.assign({}, DEFAULT_STATE.settings, s.settings || {})
+          settings: Object.assign({}, DEFAULT_STATE.settings, s.settings || {}),
+          queue: s.queue || [],
+          account: s.account || '',
+          lastSync: s.lastSync || ''
         };
       }
     } catch (e) { /* almacenamiento no disponible */ }
@@ -44,6 +52,130 @@
   function save() {
     try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); }
     catch (e) { toast('No se pudo guardar en este dispositivo'); }
+    pushNative();
+  }
+
+  // ---------- App Android (geocercas nativas) ----------
+  const NATIVE = window.AndroidApp || null;
+  let nativeSent = '';
+  // Pasa a Android las oficinas (geocercas) y la conexión con Google cuando cambian.
+  function pushNative() {
+    if (!NATIVE) return;
+    const st = state.settings;
+    const offices = JSON.stringify(st.offices.map(o => ({ name: o.name, lat: o.lat, lng: o.lng, radius: o.radius })));
+    const sig = offices + '|' + st.syncUrl + '|' + st.syncToken;
+    if (sig === nativeSent) return;
+    nativeSent = sig;
+    try { NATIVE.setOffices(offices); NATIVE.setSync(st.syncUrl, st.syncToken); } catch (e) { /* puente no disponible */ }
+  }
+  // Recoge las marcas que hizo Android con la app cerrada.
+  function pullNativeCheckins() {
+    if (!NATIVE) return;
+    let list = [];
+    try { list = JSON.parse(NATIVE.takeCheckins() || '[]'); } catch (e) { return; }
+    list.forEach(c => {
+      const prev = state.records[c.date];
+      if (!prev || prev.type !== 'office') {
+        setRecord(c.date, { type: 'office', source: 'geocerca', place: c.place, time: c.time });
+      }
+    });
+    if (list.length) render();
+  }
+  window.onNativeResume = function () {
+    pullNativeCheckins();
+    renderNative();
+    render();
+    scheduleSync(0);
+  };
+  function renderNative() {
+    document.body.classList.toggle('native', !!NATIVE);
+    const box = document.getElementById('nativeStatus');
+    const btn = document.getElementById('btnNativePerm');
+    const hint = document.getElementById('nativeHint');
+    if (!NATIVE || !box) return;
+    let st = 'ok';
+    try { st = NATIVE.permissionStatus(); } catch (e) { /* */ }
+    const msgs = {
+      ok: '✅ Activo: se marcará oficina sola al entrar al edificio, aunque la app esté cerrada.',
+      need_fine: '⚠️ Falta el permiso de ubicación.',
+      need_background: '⚠️ Para marcar con la app cerrada, la ubicación debe estar en “Permitir todo el tiempo”.'
+    };
+    box.textContent = msgs[st] || st;
+    btn.hidden = st === 'ok';
+    if (hint) { hint.textContent = st === 'ok' ? '' : msgs[st] + ' Toca aquí para activarlo.'; hint.hidden = st === 'ok'; }
+  }
+
+  // Todo cambio de registros pasa por aquí para sincronizarse con Google.
+  function setRecord(k, rec) {
+    if (rec) state.records[k] = rec; else delete state.records[k];
+    state.queue.push({ date: k, rec: rec || null });
+    save();
+    scheduleSync();
+  }
+
+  // ---------- Sincronización con Google (Apps Script + Sheets + Gmail) ----------
+  function connected() { return !!(state.settings.syncUrl && state.settings.syncToken); }
+  let syncTimer, syncing = false, syncStatus = '';
+  function scheduleSync(delay) {
+    if (!connected()) return;
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(sync, delay == null ? 800 : delay);
+  }
+
+  async function api(params, body) {
+    const url = new URL(state.settings.syncUrl);
+    url.searchParams.set('token', state.settings.syncToken);
+    Object.entries(params || {}).forEach(([k, v]) => url.searchParams.set(k, v));
+    const res = await fetch(url.toString(), body
+      ? { method: 'POST', body: JSON.stringify(Object.assign({ token: state.settings.syncToken }, body)) }
+      : { method: 'GET' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'Error del servidor');
+    return data;
+  }
+
+  async function sync() {
+    if (!connected() || syncing) return;
+    if (!navigator.onLine) { syncStatus = 'Sin conexión — se sincroniza al volver'; renderSync(); return; }
+    syncing = true; syncStatus = 'Sincronizando…'; renderSync();
+    try {
+      const sent = state.queue.length;
+      const data = sent ? await api({}, { ops: state.queue.slice(0, sent) }) : await api({ action: 'list' });
+      state.queue = state.queue.slice(sent);
+      state.records = data.records || {};
+      state.queue.forEach(op => { if (op.rec) state.records[op.date] = op.rec; else delete state.records[op.date]; });
+      state.account = data.email || state.account;
+      state.lastSync = new Date().toISOString();
+      syncStatus = '';
+      save();
+      render();
+    } catch (err) {
+      syncStatus = '⚠️ ' + err.message;
+    } finally {
+      syncing = false;
+      renderSync();
+      if (state.queue.length && !syncStatus) scheduleSync(500);
+    }
+  }
+
+  function renderSync() {
+    const box = document.getElementById('syncStatus');
+    if (!box) return;
+    let txt;
+    if (!connected()) txt = 'No conectado: el historial solo está en este celular.';
+    else {
+      txt = (state.account ? '✅ Conectado a ' + state.account : 'Conectado') +
+        (state.lastSync ? ' · última sincronización ' + new Date(state.lastSync).toLocaleString('es-CO', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '') +
+        (state.queue.length ? ' · ' + state.queue.length + ' cambio(s) pendiente(s)' : '');
+      if (syncStatus) txt += '\n' + syncStatus;
+    }
+    box.textContent = txt;
+    const badge = document.getElementById('cloudBadge');
+    if (badge) {
+      badge.textContent = !connected() ? '' : syncStatus.startsWith('⚠️') ? '☁️⚠️' : state.queue.length ? '☁️…' : '☁️';
+      badge.title = txt;
+    }
   }
 
   // ---------- Fechas ----------
@@ -133,24 +265,7 @@
     const btn = $('#btnCheck');
     btn.disabled = true; btn.textContent = '📍 Buscando…';
     try {
-      const pos = await getPosition();
-      const { latitude: lat, longitude: lng, accuracy } = pos.coords;
-      const near = nearestOffice(lat, lng);
-      const k = todayKey();
-      if (near && near.dist <= near.office.radius) {
-        const prev = state.records[k];
-        if (!prev || prev.type !== 'office') {
-          state.records[k] = { type: 'office', source: 'gps', place: near.office.name, time: new Date().toISOString() };
-          save();
-          toast('✅ Marcado: oficina (' + near.office.name + ')');
-        } else if (!silent) toast('Ya estás marcado en oficina hoy');
-        lastCheck = 'En ' + near.office.name + ' · a ' + Math.round(near.dist) + ' m';
-      } else {
-        lastCheck = near
-          ? 'Fuera de oficina · ' + near.office.name + ' a ' + fmtDist(near.dist) + ' (±' + Math.round(accuracy) + ' m)'
-          : 'No hay oficinas configuradas';
-        if (!silent) toast('No estás en una oficina registrada');
-      }
+      handlePosition(await getPosition(), silent);
     } catch (err) {
       lastCheck = err.code === 1 ? 'Permiso de ubicación denegado' : 'No se pudo obtener la ubicación';
       if (!silent) toast(lastCheck);
@@ -159,6 +274,44 @@
       render();
     }
   }
+
+  // Evalúa una posición: si está dentro de una oficina, marca hoy como oficina.
+  function handlePosition(pos, silent) {
+    const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+    const near = nearestOffice(lat, lng);
+    const k = todayKey();
+    if (near && near.dist <= near.office.radius) {
+      const prev = state.records[k];
+      if (!prev || prev.type !== 'office') {
+        setRecord(k, { type: 'office', source: 'gps', place: near.office.name, time: new Date().toISOString() });
+        if (NATIVE) try { NATIVE.markedToday(); } catch (e) { /* */ }
+        toast('✅ Marcado: oficina (' + near.office.name + ')');
+      } else if (!silent) toast('Ya estás marcado en oficina hoy');
+      lastCheck = 'En ' + near.office.name + ' · a ' + Math.round(near.dist) + ' m';
+      return true;
+    }
+    lastCheck = near
+      ? 'Fuera de oficina · ' + near.office.name + ' a ' + fmtDist(near.dist) + ' (±' + Math.round(accuracy) + ' m)'
+      : 'No hay oficinas configuradas';
+    if (!silent) toast('No estás en una oficina registrada');
+    return false;
+  }
+
+  // Mientras la app está abierta, vigila la ubicación y marca sola al llegar.
+  let watchId = null;
+  function startWatch() {
+    if (watchId !== null || !state.settings.autoCheck || !('geolocation' in navigator)) return;
+    if (officeToday()) return;
+    watchId = navigator.geolocation.watchPosition(pos => {
+      if (handlePosition(pos, true)) stopWatch();
+      render();
+    }, err => { if (err.code === 1) stopWatch(); }, { enableHighAccuracy: true, maximumAge: 60000, timeout: 60000 }); // errores pasajeros no detienen la vigilancia
+  }
+  function stopWatch() {
+    if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+  }
+  function officeToday() { const r = state.records[todayKey()]; return !!(r && r.type === 'office'); }
 
   function fmtDist(m) { return m >= 1000 ? (m / 1000).toFixed(1) + ' km' : Math.round(m) + ' m'; }
 
@@ -199,6 +352,7 @@
 
   // ---------- Render ----------
   function render() {
+    renderSync();
     renderToday();
     renderCalendar();
     renderVacations();
@@ -267,18 +421,15 @@
     let next;
     if (info.weekend) next = cur === 'office' ? null : 'office';
     else next = { null: 'office', office: 'home', home: 'vacation', vacation: null }[cur];
-    if (next) state.records[k] = { type: next, source: 'manual', time: new Date().toISOString() };
-    else delete state.records[k];
-    save();
+    setRecord(k, next ? { type: next, source: 'manual', time: new Date().toISOString() } : null);
     render();
     toast(longDate(d) + ': ' + LABELS[dayInfo(d).kind]);
   }
 
   function setToday(type) {
     const k = todayKey();
-    if (type) state.records[k] = { type, source: 'manual', time: new Date().toISOString() };
-    else delete state.records[k];
-    save(); render();
+    setRecord(k, type ? { type, source: 'manual', time: new Date().toISOString() } : null);
+    render();
   }
 
   // ---------- Vacaciones ----------
@@ -307,7 +458,7 @@
     let n = 0;
     while (d <= end) {
       const info = dayInfo(d);
-      if (info.business) { state.records[info.k] = { type: 'vacation', source: 'manual', time: new Date().toISOString() }; n++; }
+      if (info.business) { setRecord(info.k, { type: 'vacation', source: 'manual', time: new Date().toISOString() }); n++; }
       d.setDate(d.getDate() + 1);
     }
     save(); render();
@@ -322,7 +473,7 @@
       el('span', {}, r.from === r.to ? fmt(r.from) : fmt(r.from) + ' → ' + fmt(r.to)),
       el('small', {}, r.days.length + (r.days.length === 1 ? ' día' : ' días')),
       el('button', { class: 'btn icon danger', 'aria-label': 'Eliminar', onclick: () => {
-        r.days.forEach(k => delete state.records[k]); save(); render(); toast('Vacaciones eliminadas');
+        r.days.forEach(k => setRecord(k, null)); render(); toast('Vacaciones eliminadas');
       } }, '✕')
     )) : [el('li', { class: 'empty' }, 'Aún no has registrado vacaciones')]));
   }
@@ -336,6 +487,10 @@
     $('#cfgEmail').value = st.email;
     $('#cfgEmailCc').value = st.emailCc;
     $('#autoUrl').textContent = location.origin + location.pathname + '?checkin=1';
+    $('#cfgSyncUrl').value = st.syncUrl;
+    $('#cfgSyncToken').value = st.syncToken;
+    renderSync();
+    renderCheckinUrls();
 
     $('#officeList').replaceChildren(...st.offices.map((o, idx) => {
       const upd = (field, num) => e => { o[field] = num ? parseFloat(e.target.value) || 0 : e.target.value; save(); render(); };
@@ -364,7 +519,64 @@
     }));
   }
 
+  function checkinUrl(o) {
+    const u = new URL(state.settings.syncUrl);
+    u.searchParams.set('token', state.settings.syncToken);
+    u.searchParams.set('action', 'checkin');
+    u.searchParams.set('place', o.name);
+    return u.toString();
+  }
+
+  function renderCheckinUrls() {
+    const box = $('#checkinUrls');
+    if (!connected()) {
+      box.replaceChildren(el('p', { class: 'hint' }, 'Primero conecta tu cuenta de Google (arriba). Luego aquí aparecerá un enlace por oficina para la geocerca.'));
+      return;
+    }
+    box.replaceChildren(...state.settings.offices.map(o => {
+      let url;
+      try { url = checkinUrl(o); } catch (e) { url = ''; }
+      return el('div', { class: 'office' },
+        el('b', {}, o.name),
+        el('code', {}, url),
+        el('div', { class: 'row' },
+          el('button', { class: 'btn', onclick: async () => {
+            try { await navigator.clipboard.writeText(url); toast('Enlace copiado'); }
+            catch (e) { prompt('Copia este enlace:', url); }
+          } }, '📋 Copiar enlace'),
+          el('a', { class: 'btn', href: 'https://www.google.com/maps?q=' + o.lat + ',' + o.lng, target: '_blank', rel: 'noopener' }, '🗺️ Ubicación')
+        )
+      );
+    }));
+  }
+
+  async function connectGoogle() {
+    const st = state.settings;
+    const url = $('#cfgSyncUrl').value.trim();
+    const token = $('#cfgSyncToken').value.trim();
+    if (!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(url)) return toast('La URL debe terminar en /exec (copiada de Apps Script → Implementar)');
+    if (!token) return toast('Pega el TOKEN que te dio configurar()');
+    st.syncUrl = url; st.syncToken = token;
+    // Primera conexión: sube lo que ya tengas en el celular.
+    if (!state.lastSync) Object.keys(state.records).forEach(k => state.queue.push({ date: k, rec: state.records[k] }));
+    save();
+    await sync();
+    if (syncStatus) toast(syncStatus);
+    else toast('✅ Conectado a ' + (state.account || 'Google'));
+    renderSettings();
+  }
+
+  function disconnectGoogle() {
+    if (!confirm('¿Desconectar? El historial sigue guardado en tu Google Sheets y en este celular.')) return;
+    Object.assign(state.settings, { syncUrl: '', syncToken: '' });
+    state.queue = []; state.account = ''; state.lastSync = '';
+    save(); renderSettings(); render();
+  }
+
   function bindSettings() {
+    $('#btnConnect').addEventListener('click', connectGoogle);
+    $('#btnDisconnect').addEventListener('click', disconnectGoogle);
+    $('#btnSyncNow').addEventListener('click', () => sync().then(() => toast(syncStatus || 'Sincronizado')));
     const st = state.settings;
     $('#cfgPct').addEventListener('change', e => { st.pct = Math.min(100, Math.max(0, +e.target.value || 0)); save(); render(); });
     $('#cfgRound').addEventListener('change', e => { st.rounding = e.target.value; save(); render(); });
@@ -405,9 +617,16 @@
     return lines.join('\n');
   }
 
-  function sendEmail() {
+  async function sendEmail() {
     const st = state.settings;
     const month = $('#view-cal').classList.contains('active') ? viewMonth : startOfMonth(new Date());
+    if (connected()) {
+      try {
+        toast('Enviando a tu Gmail…');
+        await api({ action: 'resumen', month: key(month) });
+        return toast('✉️ Resumen enviado a ' + (state.account || 'tu Gmail'));
+      } catch (e) { toast('No se pudo enviar por Gmail; abriendo el correo…'); }
+    }
     const params = new URLSearchParams();
     params.set('subject', 'Asistencia oficina — ' + monthLabel(month));
     params.set('body', summaryText(month));
@@ -445,7 +664,9 @@
       try {
         const data = JSON.parse(reader.result);
         if (!data.records || !data.settings) throw new Error();
-        state = { records: data.records, settings: Object.assign({}, DEFAULT_STATE.settings, data.settings) };
+        state.settings = Object.assign({}, DEFAULT_STATE.settings, data.settings);
+        Object.keys(state.records).forEach(k => { if (!data.records[k]) setRecord(k, null); });
+        Object.keys(data.records).forEach(k => setRecord(k, data.records[k]));
         save(); renderSettings(); render(); toast('Respaldo restaurado');
       } catch (e) { toast('Archivo no válido'); }
     };
@@ -477,23 +698,31 @@
     $('#btnExport').addEventListener('click', () => download('asistencia-respaldo.json', JSON.stringify(state, null, 2), 'application/json'));
     $('#fileImport').addEventListener('change', e => e.target.files[0] && importJson(e.target.files[0]));
     bindSettings();
+    pushNative();
+    pullNativeCheckins();
+    renderNative();
+    const askPerm = () => { try { NATIVE.requestPermissions(); } catch (e) { /* */ } };
+    $('#btnNativePerm').addEventListener('click', askPerm);
+    $('#nativeHint').addEventListener('click', askPerm);
     render();
 
     const forced = new URLSearchParams(location.search).has('checkin');
     maybeAutoCheck(forced);
+    scheduleSync(0);
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') { render(); maybeAutoCheck(false); }
+      if (document.visibilityState === 'visible') { render(); maybeAutoCheck(false); scheduleSync(0); }
+      else stopWatch();
     });
+    window.addEventListener('online', () => scheduleSync(0));
 
-    if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+    if (!NATIVE && 'serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
   }
 
   let lastAuto = 0;
   async function maybeAutoCheck(forced) {
-    const info = dayInfo(new Date());
-    if (info.rec && info.rec.type !== 'pending' && !forced) return; // ya hay registro hoy
+    if (officeToday() && !forced) return; // ya está marcado en oficina hoy
     if (!forced && !state.settings.autoCheck) return;
-    if (Date.now() - lastAuto < 5 * 60 * 1000 && !forced) return;
+    if (Date.now() - lastAuto < 5 * 60 * 1000 && !forced) { startWatch(); return; }
     lastAuto = Date.now();
     if (!forced && navigator.permissions) {
       try {
@@ -501,7 +730,8 @@
         if (p.state === 'denied') return;
       } catch (e) { /* algunos navegadores no soportan la consulta */ }
     }
-    checkLocation(!forced);
+    await checkLocation(!forced);
+    startWatch();
   }
 
   document.addEventListener('DOMContentLoaded', init);

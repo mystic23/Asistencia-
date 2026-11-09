@@ -15,7 +15,7 @@
 </head>
 <body>
   <header class="top">
-    <h1>Asistencia</h1>
+    <h1>Asistencia <span id="cloudBadge" class="badge"></span></h1>
     <nav class="tabs" role="tablist">
       <button class="tab active" data-view="home" role="tab">Hoy</button>
       <button class="tab" data-view="cal" role="tab">Mes</button>
@@ -31,6 +31,7 @@
         <div class="today-date" id="todayDate"></div>
         <div class="today-status" id="todayStatus">—</div>
         <div class="today-detail" id="todayDetail"></div>
+        <button class="native-hint" id="nativeHint" hidden></button>
         <button class="btn primary" id="btnCheck">📍 Verificar ubicación</button>
         <div class="row">
           <button class="btn" id="btnOffice">🏢 Fui a oficina</button>
@@ -49,7 +50,7 @@
       <div class="card">
         <h2>Enviar resumen</h2>
         <div class="row">
-          <button class="btn" id="btnEmail">✉️ Por correo</button>
+          <button class="btn" id="btnEmail">✉️ A mi Gmail</button>
           <button class="btn" id="btnShare">📤 Compartir</button>
         </div>
       </div>
@@ -102,6 +103,39 @@
     <!-- AJUSTES -->
     <section id="view-cfg" class="view">
       <div class="card">
+        <h2>Gmail / Google ☁️</h2>
+        <p class="hint">Guarda tu historial en una hoja de Google Sheets de tu cuenta, te envía correos desde tu Gmail y permite el marcado automático sin abrir la app. Instrucciones en <a href="https://github.com/mystic23/Asistencia-#conectar-con-gmail" target="_blank" rel="noopener">el README</a>.</p>
+        <label>URL del script (termina en /exec) <input type="url" id="cfgSyncUrl" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off"></label>
+        <label>Token <input type="text" id="cfgSyncToken" placeholder="token de configurar()" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+        <div class="row">
+          <button class="btn primary" id="btnConnect">Conectar</button>
+        </div>
+        <p class="hint sync" id="syncStatus"></p>
+        <div class="row">
+          <button class="btn" id="btnSyncNow">🔄 Sincronizar</button>
+          <button class="btn danger" id="btnDisconnect">Desconectar</button>
+        </div>
+      </div>
+      <div class="card only-native">
+        <h2>Marcado automático 🤖</h2>
+        <p class="hint sync" id="nativeStatus"></p>
+        <button class="btn primary" id="btnNativePerm" hidden>Activar permisos</button>
+        <p class="hint">La app vigila la entrada a cada oficina de la lista de abajo (radio mínimo 100 m). Si conectaste Gmail, cada marca también se guarda en tu Google Sheets y te llega un correo.</p>
+      </div>
+      <div class="card only-web">
+        <h2>📱 App Android</h2>
+        <p class="hint">Instala la app Android para que se marque sola al llegar a la oficina, sin abrir nada.</p>
+        <a class="btn primary" href="https://github.com/mystic23/Asistencia-/releases/latest/download/asistencia.apk">Descargar APK</a>
+      </div>
+      <div class="card only-web">
+        <h2>Marcado automático (sin abrir la app)</h2>
+        <p class="hint">Con la app abierta, se marca sola al entrar a la oficina. Para que funcione con la app <b>cerrada</b>, el celular debe avisarle a Google al entrar a la zona de la oficina:</p>
+        <p class="hint"><b>Android — MacroDroid (gratis):</b> Agregar macro → Disparador <i>Ubicación → Geocerca → Entrar</i> (marca el edificio en el mapa, radio 150–250 m) → Acción <i>Conectividad → Solicitud HTTP</i> (GET) con el enlace de abajo. Desactiva la optimización de batería para MacroDroid.</p>
+        <p class="hint"><b>iPhone — Atajos:</b> Automatización → <i>Al llegar</i> (la oficina) → <i>Ejecutar inmediatamente</i> → acción <i>Obtener contenido de URL</i> con el enlace de abajo.</p>
+        <div id="checkinUrls"></div>
+        <p class="hint">Recibirás un correo en tu Gmail cada vez que se marque.</p>
+      </div>
+      <div class="card">
         <h2>Oficinas</h2>
         <p class="hint">Estando dentro del edificio, toca <b>“Usar mi ubicación”</b> para calibrar las coordenadas exactas.</p>
         <div id="officeList"></div>
@@ -131,13 +165,11 @@
           <button class="btn" id="btnExport">Respaldo</button>
           <label class="btn file">Restaurar<input type="file" id="fileImport" accept="application/json" hidden></label>
         </div>
-        <p class="hint">Todo se guarda solo en este celular. Haz respaldos de vez en cuando.</p>
+        <p class="hint">Sin conectar Google, todo se guarda solo en este celular. Conectado, el historial queda también en tu Google Sheets.</p>
       </div>
-      <div class="card">
-        <h2>Marcado automático</h2>
-        <p class="hint">Una web no puede leer el GPS en segundo plano. Para que marque solo al llegar:</p>
-        <p class="hint"><b>iPhone:</b> Atajos → Automatización → “Al llegar” a la oficina → Abrir URL:<br><code id="autoUrl"></code></p>
-        <p class="hint"><b>Android:</b> agrega la app a la pantalla de inicio y ábrela al llegar (o usa una automatización con esa URL, p. ej. en Rutinas/Tasker).</p>
+      <div class="card only-web">
+        <h2>Abrir y verificar</h2>
+        <p class="hint">Este enlace abre la app y verifica el GPS al instante (útil para un acceso directo):<br><code id="autoUrl"></code></p>
       </div>
     </section>
   </main>
